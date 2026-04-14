@@ -1,9 +1,10 @@
 import numpy as np
+from activation_functions import softmax
 
 class MLP_Network:
     
     def __init__(self, layer_sizes, activation_function, activation_derivative, 
-                 last_layer_linear=True, init_method='uniform'):
+                 last_layer_linear=True, init_method='uniform', loss_type='mse', output_activation=None, output_derivative=None):
         """
         layer_sizes: lista intów, np. [1, 5, 1] (wejście, ukryta, wyjście)
         activation_func: funkcja aktywacji, np. sigmoida, tanh
@@ -12,6 +13,11 @@ class MLP_Network:
         self.activation_function = activation_function
         self.activation_derivative = activation_derivative
         self.last_layer_linear = last_layer_linear
+        self.loss_type = loss_type
+
+        self.output_activation = output_activation
+        self.output_derivative = output_derivative
+        
         self.norm_params = {}
         
         # Inicjalizacja wag i biasów
@@ -64,8 +70,15 @@ class MLP_Network:
         for i in range(len(self.weights)):
             z = np.dot(a, self.weights[i]) + self.biases[i]
             sums_weighted.append(z)
-            if i == len(self.weights) - 1 and self.last_layer_linear:
-                a = z
+            if i == len(self.weights) - 1:
+                if self.loss_type == 'cross_entropy':
+                    a = softmax(z)
+                elif self.last_layer_linear:
+                    a = z
+                elif self.output_activation is not None:
+                    a = self.output_activation(z)
+                else:
+                    a = self.activation_function(z)
             else:
                 a = self.activation_function(z)
             activations.append(a)
@@ -102,7 +115,11 @@ class MLP_Network:
             #self.weight_history.append([w.copy() for w in self.weights])
 
             if epoch % history_param == 0:
-                epoch_loss = np.mean((Y - y_pred_epoch)**2)
+                if self.loss_type == 'cross_entropy':
+                    # Obliczenie entropii krzyżowej
+                    epoch_loss = -np.mean(np.sum(Y * np.log(y_pred_epoch + 1e-15), axis=1))
+                else:
+                    epoch_loss = np.mean((Y - y_pred_epoch)**2)
                 self.loss_history.append(epoch_loss)
 
     def _backward(self, activations, sums, Y, lr, optimizer='sgd', momentum=0.9, beta=0.9, epsilon=1e-8):
@@ -111,8 +128,12 @@ class MLP_Network:
         num_layers = len(self.weights)
         
         # Błąd warstwy wyjściowej
-        if self.last_layer_linear:
+        if self.loss_type == 'cross_entropy':
             delta = (activations[-1] - Y) / m
+        elif self.last_layer_linear:
+            delta = (activations[-1] - Y) / m
+        elif self.output_derivative is not None:
+            delta = (activations[-1] - Y) * self.output_derivative(sums[-1]) / m
         else:
             delta = (activations[-1] - Y) * self.activation_derivative(sums[-1]) / m
             
@@ -141,7 +162,7 @@ class MLP_Network:
                 self.biases[i] -= (lr / (np.sqrt(self.s_b[i]) + epsilon)) * db
                 
             else:
-                # Stochastic Gradient Descent (SGD)
+                # Stochastic Gradient Descent
                 self.weights[i] -= lr * dw
                 self.biases[i] -= lr * db
 
@@ -156,8 +177,15 @@ class MLP_Network:
             
         for i in range(len(self.weights)):
             z = np.dot(a, self.weights[i]) + self.biases[i]
-            if i == len(self.weights) - 1 and self.last_layer_linear:
-                a = z
+            if i == len(self.weights) - 1:
+                if self.loss_type == 'cross_entropy':
+                    a = softmax(z)
+                elif self.last_layer_linear:
+                    a = z
+                elif self.output_activation is not None:
+                    a = self.output_activation(z)
+                else:
+                    a = self.activation_function(z)
             else:
                 a = self.activation_function(z)
         
